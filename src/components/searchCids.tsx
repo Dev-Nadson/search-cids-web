@@ -1,14 +1,25 @@
 // searchCids.tsx
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Search, X } from 'lucide-react';
+import { connection } from '../services/api';
+
+type cids = {
+    code: string,
+    name: string
+}
 
 function SearchCids() {
     const [searchTerm, setSearchTerm] = useState('');
 
-    const items = [
-        //    { code: 'A00', name: 'Cólera' },
+    let items: Array<cids> = [];
 
-    ];
+    async function getCids() {
+        items = await connection.get('/cids')
+    }
+
+    useEffect(() => {
+        getCids()
+    })
 
     const filteredItems = items.filter(item =>
         item.code.toLowerCase().includes(searchTerm.toLowerCase()) ||
