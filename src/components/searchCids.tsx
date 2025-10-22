@@ -10,21 +10,46 @@ type cids = {
 
 function SearchCids() {
     const [searchTerm, setSearchTerm] = useState('');
-
-    let items: Array<cids> = [];
+    const [items, setItems] = useState<cids[]>([]);
+    const [loading, setLoading] = useState(true);
 
     async function getCids() {
-        items = await connection.get('/cids')
+        try {
+            setLoading(true);
+            const cids = await connection.get('/cids');
+            setItems(cids.data || []);
+            console.log('CIDs carregados:', cids.data);
+        } catch (error) {
+            console.error('Erro ao buscar CIDs:', error);
+            setItems([]);
+        } finally {
+            setLoading(false);
+        }
     }
 
     useEffect(() => {
-        getCids()
-    })
+        getCids();
+    }, []); // Array vazio para executar apenas uma vez
 
-    const filteredItems = items.filter(item =>
-        item.code.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        item.name.toLowerCase().includes(searchTerm.toLowerCase())
-    );
+    const filteredItems = !searchTerm
+        ? (items || [])
+        : (items || []).filter(item =>
+            item.code.toLowerCase().includes(searchTerm.toLowerCase()) ||
+            item.name.toLowerCase().includes(searchTerm.toLowerCase())
+        );
+
+
+
+    if (loading) {
+        return (
+            <div className="min-h-screen bg-gray-100 p-8 flex items-center justify-center">
+                <div className="text-center">
+                    <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-600 mx-auto mb-4"></div>
+                    <p className="text-gray-600">Carregando CIDs...</p>
+                </div>
+            </div>
+        );
+    }
 
     return (
         <div className="min-h-screen bg-gray-100 p-8">
