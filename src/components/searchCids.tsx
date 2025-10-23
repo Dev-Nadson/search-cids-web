@@ -1,6 +1,6 @@
-// searchCids.tsx
-import { useEffect, useState, useMemo } from 'react';
-import { Search, X, AlertCircle, RefreshCw } from 'lucide-react';
+// searchCids.tsx - VERSÃO COM PAGINAÇÃO OTIMIZADA
+import { useEffect, useState, useMemo, useCallback, memo } from 'react';
+import { Search, X, AlertCircle, RefreshCw, ChevronDown } from 'lucide-react';
 import { connection } from '../services/api';
 
 type Cid = {
@@ -8,19 +8,78 @@ type Cid = {
     DESCRICAO: string;
 }
 
+// ✅ Hook de debounce otimizado
+function useDebounce<T>(value: T, delay: number): T {
+    const [debouncedValue, setDebouncedValue] = useState<T>(value);
+
+    useEffect(() => {
+        const handler = setTimeout(() => {
+            setDebouncedValue(value);
+        }, delay);
+
+        return () => {
+            clearTimeout(handler);
+        };
+    }, [value, delay]);
+
+    return debouncedValue;
+}
+
+// ✅ Componente de item memoizado para evitar re-renders
+const CidItem = memo(({ item }: { item: Cid }) => (
+    <div className="bg-white rounded-lg shadow-md p-4 sm:p-5 hover:shadow-xl transition-shadow border-l-4 border-indigo-500 group cursor-pointer">
+        <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3 sm:gap-4">
+            <div className="bg-indigo-100 px-4 py-2 rounded-lg min-w-[80px] text-center">
+                <span className="text-indigo-700 font-bold text-sm">
+                    {item.SUBCAT}
+                </span>
+            </div>
+            <div className="flex-1">
+                <h3 className="text-base sm:text-lg font-semibold text-gray-800 leading-tight">
+                    {item.DESCRICAO}
+                </h3>
+            </div>
+        </div>
+    </div>
+));
+
+CidItem.displayName = 'CidItem';
+
+// ✅ Skeleton otimizado (menos animações)
+const LoadingSkeleton = memo(() => (
+    <div className="space-y-3">
+        {[1, 2, 3, 4].map((i) => (
+            <div key={i} className="bg-white rounded-lg shadow-md p-5">
+                <div className="flex items-center gap-4">
+                    <div className="bg-gray-200 rounded-lg w-24 h-10 animate-pulse"></div>
+                    <div className="flex-1">
+                        <div className="bg-gray-200 h-6 rounded w-3/4 animate-pulse"></div>
+                    </div>
+                </div>
+            </div>
+        ))}
+    </div>
+));
+
+LoadingSkeleton.displayName = 'LoadingSkeleton';
+
 function SearchCids() {
     const [searchTerm, setSearchTerm] = useState('');
     const [items, setItems] = useState<Cid[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
+    const [displayCount, setDisplayCount] = useState(50); // Mostra 50 inicialmente
 
-    async function getCids() {
+    // ✅ Debounce de 300ms para não filtrar a cada tecla
+    const debouncedSearchTerm = useDebounce(searchTerm, 300);
+
+    // ✅ Função de fetch memoizada
+    const getCids = useCallback(async () => {
         try {
             setLoading(true);
             setError(null);
             const response = await connection.get('/cids');
 
-            // Espera array direto do backend
             if (Array.isArray(response.data)) {
                 setItems(response.data);
                 console.log('✅ CIDs carregados:', response.data.length);
@@ -38,38 +97,54 @@ function SearchCids() {
         } finally {
             setLoading(false);
         }
-    }
+    }, []);
 
     useEffect(() => {
         getCids();
+    }, [getCids]);
+
+    // ✅ Filtro otimizado com normalização de strings
+    const filteredItems = useMemo(() => {
+        if (!debouncedSearchTerm) return items;
+
+        const term = debouncedSearchTerm
+            .toLowerCase()
+            .trim()
+            .normalize('NFD')
+            .replace(/[\u0300-\u036f]/g, ''); // Remove acentos
+
+        return items.filter(item => {
+            const subcat = item.SUBCAT.toLowerCase();
+            const descricao = item.DESCRICAO
+                .toLowerCase()
+                .normalize('NFD')
+                .replace(/[\u0300-\u036f]/g, '');
+
+            return subcat.includes(term) || descricao.includes(term);
+        });
+    }, [items, debouncedSearchTerm]);
+
+    // ✅ Itens paginados - só mostra os primeiros X
+    const displayedItems = useMemo(() => {
+        return filteredItems.slice(0, displayCount);
+    }, [filteredItems, displayCount]);
+
+    // ✅ Reseta paginação quando busca muda
+    useEffect(() => {
+        setDisplayCount(50);
+    }, [debouncedSearchTerm]);
+
+    // ✅ Carregar mais itens
+    const loadMore = useCallback(() => {
+        setDisplayCount(prev => prev + 50);
     }, []);
 
-    // Busca otimizada com useMemo
-    const filteredItems = useMemo(() => {
-        if (!searchTerm) return items;
+    // ✅ Clear handler memoizado
+    const handleClearSearch = useCallback(() => {
+        setSearchTerm('');
+    }, []);
 
-        const term = searchTerm.toLowerCase().trim();
-        return items.filter(item =>
-            item.SUBCAT.toLowerCase().includes(term) ||
-            item.DESCRICAO.toLowerCase().includes(term)
-        );
-    }, [items, searchTerm]);
-
-    // Skeleton de carregamento
-    const LoadingSkeleton = () => (
-        <div className="space-y-3">
-            {[1, 2, 3, 4, 5, 6, 7, 8].map((i) => (
-                <div key={i} className="bg-white rounded-lg shadow-md p-5 animate-pulse">
-                    <div className="flex items-center gap-4">
-                        <div className="bg-gray-200 rounded-lg w-24 h-10"></div>
-                        <div className="flex-1">
-                            <div className="bg-gray-200 h-6 rounded w-3/4"></div>
-                        </div>
-                    </div>
-                </div>
-            ))}
-        </div>
-    );
+    const hasMore = displayedItems.length < filteredItems.length;
 
     if (loading) {
         return (
@@ -143,7 +218,7 @@ function SearchCids() {
                         />
                         {searchTerm && (
                             <button
-                                onClick={() => setSearchTerm('')}
+                                onClick={handleClearSearch}
                                 className="absolute right-4 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600 transition-colors p-1 hover:bg-gray-100 rounded"
                                 aria-label="Limpar pesquisa"
                                 title="Limpar pesquisa"
@@ -159,7 +234,7 @@ function SearchCids() {
                             </span>
                             {' '}{filteredItems.length === 1 ? 'resultado encontrado' : 'resultados encontrados'}
                         </p>
-                        {searchTerm && (
+                        {debouncedSearchTerm && (
                             <span className="text-xs bg-indigo-100 text-indigo-700 px-3 py-1 rounded-full font-medium">
                                 🔍 Filtrando
                             </span>
@@ -169,26 +244,28 @@ function SearchCids() {
 
                 {/* Lista de Resultados */}
                 <div className="space-y-3">
-                    {filteredItems.length > 0 ? (
-                        filteredItems.map((item, index) => (
-                            <div
-                                key={`${item.SUBCAT}-${index}`}
-                                className="bg-white rounded-lg shadow-md p-4 sm:p-5 hover:shadow-xl transition-all duration-200 hover:-translate-y-1 border-l-4 border-indigo-500 group cursor-pointer"
-                            >
-                                <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3 sm:gap-4">
-                                    <div className="bg-indigo-100 px-4 py-2 rounded-lg group-hover:bg-indigo-600 transition-colors min-w-[80px] text-center">
-                                        <span className="text-indigo-700 group-hover:text-white font-bold text-sm transition-colors">
-                                            {item.SUBCAT}
+                    {displayedItems.length > 0 ? (
+                        <>
+                            {displayedItems.map((item) => (
+                                <CidItem key={item.SUBCAT} item={item} />
+                            ))}
+
+                            {/* Botão Carregar Mais */}
+                            {hasMore && (
+                                <div className="flex justify-center pt-6">
+                                    <button
+                                        onClick={loadMore}
+                                        className="inline-flex items-center gap-2 bg-indigo-600 text-white px-8 py-3 rounded-lg hover:bg-indigo-700 transition-all font-medium shadow-lg hover:shadow-xl hover:scale-105"
+                                    >
+                                        <span>Carregar mais</span>
+                                        <ChevronDown size={20} />
+                                        <span className="text-xs bg-indigo-500 px-2 py-1 rounded-full">
+                                            +50
                                         </span>
-                                    </div>
-                                    <div className="flex-1">
-                                        <h3 className="text-base sm:text-lg font-semibold text-gray-800 leading-tight group-hover:text-indigo-600 transition-colors">
-                                            {item.DESCRICAO}
-                                        </h3>
-                                    </div>
+                                    </button>
                                 </div>
-                            </div>
-                        ))
+                            )}
+                        </>
                     ) : (
                         <div className="bg-white rounded-lg shadow-md p-12 text-center">
                             <div className="text-gray-400 mb-4">
@@ -198,10 +275,10 @@ function SearchCids() {
                                 Nenhum resultado encontrado
                             </h3>
                             <p className="text-gray-500 mb-4">
-                                Não encontramos CIDs com o termo "{searchTerm}"
+                                Não encontramos CIDs com o termo "{debouncedSearchTerm}"
                             </p>
                             <button
-                                onClick={() => setSearchTerm('')}
+                                onClick={handleClearSearch}
                                 className="text-indigo-600 hover:text-indigo-700 font-medium inline-flex items-center gap-2 hover:underline"
                             >
                                 <X size={16} />
@@ -212,9 +289,10 @@ function SearchCids() {
                 </div>
 
                 {/* Footer com informações */}
-                {filteredItems.length > 0 && (
+                {displayedItems.length > 0 && (
                     <div className="mt-8 text-center text-sm text-gray-500">
-                        Mostrando {filteredItems.length} de {items.length} CIDs disponíveis
+                        Mostrando {displayedItems.length.toLocaleString('pt-BR')} de {filteredItems.length.toLocaleString('pt-BR')} CIDs
+                        {filteredItems.length !== items.length && ` (filtrados de ${items.length.toLocaleString('pt-BR')} totais)`}
                     </div>
                 )}
             </div>
