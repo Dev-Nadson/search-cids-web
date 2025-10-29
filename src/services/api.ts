@@ -1,7 +1,8 @@
 import axios from "axios";
+import { env } from "../config/env.config";
 
 const connection = axios.create({
-    baseURL: "http://localhost:3333"
+    baseURL: env.BASE_URL
 })
 
 export { connection }
